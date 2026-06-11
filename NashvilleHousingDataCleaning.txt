@@ -1,0 +1,249 @@
+Nashville Housing Data Cleaning Project
+
+
+--Bulk Insert
+
+CREATE TABLE dbo.NashvilleHousing (
+    UniqueID VARCHAR(255),
+    ParcelID VARCHAR(255),
+    LandUse VARCHAR(255),
+    PropertyAddress VARCHAR(255),
+    SaleDate VARCHAR(255),
+    SalePrice VARCHAR(255),
+    LegalReference VARCHAR(255),
+    SoldAsVacant VARCHAR(255),
+    OwnerName VARCHAR(255),
+    OwnerAddress VARCHAR(255),
+    Acreage VARCHAR(255),
+    TaxDistrict VARCHAR(255),
+    LandValue VARCHAR(255),
+    BuildingValue VARCHAR(255),
+    TotalValue VARCHAR(255),
+    YearBuilt VARCHAR(255),
+    Bedrooms VARCHAR(255),
+    FullBath VARCHAR(255),
+    HalfBath VARCHAR(255)
+);
+GO
+
+BULK INSERT dbo.NashvilleHousing 
+FROM "C:\Analyst Projects\Excel Operations\Nashville Housing Data for Data Cleaning.csv"
+WITH (
+    FORMAT = 'CSV',              -- Tells SQL to use the smart RFC 4180 CSV parser
+    FIELDQUOTE = '"',            -- Explicitly sets the double quote as the text qualifier
+    FIELDTERMINATOR = ',',
+    ROWTERMINATOR = '\n',
+    FIRSTROW = 2
+);
+GO
+
+----------------------------------------------------------------------------------------------
+-- standardize date format
+
+Select saleDateConverted, CONVERT(Date,SaleDate)
+From PortfolioProject.dbo.NashvilleHousing
+
+
+Update NashvilleHousing
+SET SaleDate = CONVERT(Date,SaleDate)
+
+------------------------------------------------------------------------------------------
+
+-- Populate property address data
+
+select *
+from NashvilleHousing
+--where propertyaddress is null
+order by parcelid
+
+select a.parcelid, a.PropertyAddress, b.parcelid, b.PropertyAddress, isnull(a.propertyaddress, b.propertyaddress)
+from NashvilleHousing a
+join NashvilleHousing b
+on a.parcelid = b.parcelid
+and a.[UniqueID] <> b.[UniqueID]
+where a.propertyaddress is null
+
+update a
+set propertyaddress = isnull(a.propertyaddress, b.propertyaddress)
+from NashvilleHousing a
+join NashvilleHousing b
+on a.parcelid = b.parcelid
+and a.[UniqueID] <> b.[UniqueID]
+where a.propertyaddress is null
+
+----------------------------------------------------------------------------------------
+
+--Breaking out address into individual columns (address, city, state)
+
+select *
+from NashvilleHousing
+--where propertyaddress is null
+--order by parcelid
+
+select 
+substring(propertyaddress, 1, charindex(',', propertyaddress) -1) as address,
+substring(propertyaddress, charindex(',', propertyaddress) +1, len(propertyaddress)) as city
+from NashvilleHousing
+
+
+alter table nashvillehousing
+add propertysplitaddress nvarchar(255);
+
+update nashvillehousing
+set propertysplitaddress = substring(propertyaddress, 1, charindex(',', propertyaddress) -1)
+
+alter table nashvillehousing
+add propertysplitcity nvarchar(255);
+
+update nashvillehousing
+set propertysplitcity = substring(propertyaddress, charindex(',', propertyaddress) +1, len(propertyaddress))
+
+
+select *
+from NashvilleHousing
+
+
+select parsename(replace(owneraddress, ',', '.') ,3),
+parsename(replace(owneraddress, ',', '.') ,2),
+parsename(replace(owneraddress, ',', '.') ,1)
+from NashvilleHousing
+
+
+
+alter table nashvillehousing
+add ownersplitaddress nvarchar(255);
+
+update nashvillehousing
+set ownersplitaddress = parsename(replace(owneraddress, ',', '.') ,3)
+
+
+alter table nashvillehousing
+add ownersplitcity nvarchar(255);
+
+update nashvillehousing
+set ownersplitcity = parsename(replace(owneraddress, ',', '.') ,2)
+
+alter table nashvillehousing
+add ownersplitstate nvarchar(255);
+
+update nashvillehousing
+set ownersplitstate = parsename(replace(owneraddress, ',', '.') ,1)
+
+
+select *
+from NashvilleHousing
+
+
+----------------------------------------------------------------------------------------------
+
+--change Y and N to Yes and NO in 'Sold as Vacant' field
+
+select distinct(soldasvacant), count(soldasvacant)
+from NashvilleHousing
+group by SoldAsVacant
+order by 2
+
+alter table nashvillehousing
+alter column soldasvacant varchar(10);
+
+update NashvilleHousing
+set soldasvacant = case
+	when soldasvacant = '1' then 'Yes'
+	when soldasvacant = '0' then 'No'
+	else soldasvacant
+	end
+
+select  distinct(soldasvacant), count(soldasvacant)
+from NashvilleHousing
+group by SoldAsVacant
+
+-----------------------------------------------------------------------------------------------------
+
+-- Remove duplicates
+
+with rownumcte as(
+select *,
+	row_number() over (
+	partition by parcelid,
+				address,
+				saleprice,
+				[sale date],
+				legalreference
+				order by uniqueid
+				) row_num
+from NashvilleHousing
+)
+delete
+from rownumcte
+where row_num > 1
+--order by address
+
+
+
+-- check for duplicates and there are none
+
+
+with rownumcte as(
+select *,
+	row_number() over (
+	partition by parcelid,
+				address,
+				saleprice,
+				[sale date],
+				legalreference
+				order by uniqueid
+				) row_num
+from NashvilleHousing
+)
+select *
+from rownumcte
+where row_num > 1
+order by address
+
+select *
+from NashvilleHousing
+
+  
+
+
+
+
+----------------------------------------------------------------------------------------------------------
+
+--Remove unused columns
+
+select *
+from NashvilleHousing
+
+alter table nashvillehousing
+drop column owneraddress, taxdistrict, propertyaddress, saledate
+
+---------------------------------------------------------------------------------------------------------------
+
+-- At this point I made a mistake and used 'update column' to try to change a column name. However in SQL server, 
+this means you change the data in the column and not the column name. I erased all the addresses in this attempt and could not recover. 
+I had to drop the nashvillehousing table and do a bulk insert of the data again. I then had to backtrack throuh all of my steps
+to get back to this point in the data cleaning. 
+
+----------------------------------------------------------------------------------------------------------------
+
+--Renaming Columns
+
+
+EXEC sp_rename 'dbo.NashvilleHousing.propertysplitaddress', 'Address', 'COLUMN';
+
+EXEC sp_rename 'dbo.NashvilleHousing.propertysplitcity', 'city', 'COLUMN';
+
+EXEC sp_rename 'dbo.NashvilleHousing.ownersplitaddress', 'Owner Address', 'COLUMN';
+
+EXEC sp_rename 'dbo.NashvilleHousing.ownersplitcity', 'Owner City', 'COLUMN';
+
+EXEC sp_rename 'dbo.NashvilleHousing.city', 'City', 'COLUMN';
+
+EXEC sp_rename 'dbo.NashvilleHousing.ownersplitstate', 'Owner State', 'COLUMN';
+
+EXEC sp_rename 'dbo.NashvilleHousing.[Sale Date]', 'Sale_Date', 'COLUMN';
+
+
+select *
+from NashvilleHousing
